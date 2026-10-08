@@ -1,0 +1,48 @@
+name: Sync filtered calendar
+
+on:
+  schedule:
+    # Hourly is plenty: Google only re-polls an external ICS every 8-24h.
+    - cron: "0 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-calendar
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run tests
+        run: python -m unittest test_filter_ics
+
+      - name: Build filtered calendar
+        env:
+          ICS_URL: ${{ secrets.ICS_URL }}
+        run: |
+          python filter_ics.py \
+            --output calendar.ics \
+            --calname "Work (filtered)" \
+            --min-events 1
+
+      - name: Publish to secret gist
+        env:
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+        run: |
+          jq -Rs --arg n calendar.ics '{files: {($n): {content: .}}}' \
+            calendar.ics > payload.json
+          gh api -X PATCH "/gists/$GIST_ID" --input payload.json --silent
+          echo "Published $(grep -c '^BEGIN:VEVENT' calendar.ics) events."

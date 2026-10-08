@@ -1,0 +1,6 @@
+# Secrets and any real calendar data must never be committed.
+.secrets/
+*.ics
+payload.json
+__pycache__/
+*.pyc
