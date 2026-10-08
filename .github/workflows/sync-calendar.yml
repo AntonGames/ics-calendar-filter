@@ -9,7 +9,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: sync-calendar
@@ -42,7 +42,43 @@ jobs:
           GH_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::GIST_TOKEN secret is not set on this repository."
+            echo "Create a classic token with only the 'gist' scope, then run:"
+            echo "  gh secret set GIST_TOKEN --repo ${{ github.repository }}"
+            exit 1
+          fi
           jq -Rs --arg n calendar.ics '{files: {($n): {content: .}}}' \
             calendar.ics > payload.json
           gh api -X PATCH "/gists/$GIST_ID" --input payload.json --silent
           echo "Published $(grep -c '^BEGIN:VEVENT' calendar.ics) events."
+
+      - name: Verify the published feed
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+        run: |
+          url="https://gist.githubusercontent.com/${{ github.repository_owner }}/$GIST_ID/raw/calendar.ics"
+          curl -fsSL --retry 3 "$url" -o published.ics
+          events=$(grep -c '^BEGIN:VEVENT' published.ics)
+          leaked=$(grep -ciE '^SUMMARY:(canceled|cancelled|atšaukta|stebima|following):' published.ics || true)
+          echo "Live feed: $events events, $leaked leaked."
+          if [ "$events" -lt 1 ] || [ "$leaked" -ne 0 ]; then
+            echo "::error::Published feed failed validation."
+            exit 1
+          fi
+
+      - name: Keep the schedule alive
+        # GitHub disables cron workflows after 60 days of repository inactivity,
+        # so commit periodically to keep this running with every PC switched off.
+        run: |
+          days=$(( ( $(date +%s) - $(git log -1 --format=%ct) ) / 86400 ))
+          echo "Days since last commit: $days"
+          if [ "$days" -ge 45 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            date -u +"%Y-%m-%dT%H:%M:%SZ" > .keepalive
+            git add .keepalive
+            git commit -m "chore: keep scheduled workflow alive"
+            git push
+            echo "Pushed keepalive commit."
+          fi

@@ -89,15 +89,28 @@ Options: `--keep-cancelled`, `--keep-following`, `--keep-declined`,
 `--min-events N` refuses to write the file if fewer than N events survive, so a
 transient Outlook error page can never blank your calendar.
 
+## Runs with every PC switched off
+
+The whole pipeline is server-side: GitHub Actions fetches the Outlook feed,
+filters it and updates the Gist on GitHub's own runners, and Google pulls from
+the Gist. Nothing touches a local machine, so it keeps working while every PC
+you own is off. A local machine is only needed to change the configuration.
+
+The one catch is that **GitHub disables scheduled workflows after 60 days of
+repository inactivity**. The `Keep the schedule alive` step prevents that by
+pushing a small commit whenever the repo has been quiet for 45 days, so the
+cron never gets switched off.
+
 ## Things worth knowing
 
 - **Refresh lag is Google's, not ours.** Google re-polls an external ICS only
   every ~8–24 hours and this is not configurable. A faster cron will not help.
-- **Scheduled workflows are disabled after 60 days of repo inactivity.**
-  Re-enable from the Actions tab, or push a commit occasionally.
 - **The gist is secret, not private.** Anyone with the URL can read it — the
   same security model as the Outlook ICS link itself. Do not publish it, and
   never use GitHub Pages for this, as that would expose meeting titles publicly.
+- **Failures email you.** GitHub notifies the repo owner when a scheduled run
+  fails, and the run refuses to publish an empty or leaking calendar rather
+  than corrupting a working one.
 - **Fix it at the source too.** In Outlook: *Settings → Calendar → Events and
   invitations → Save declined events* → off. That reduces what reaches the feed
   in the first place, though it does not cover Following/Stebima.

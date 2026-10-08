@@ -12,6 +12,8 @@ import argparse
 import os
 import re
 import sys
+import time
+import urllib.error
 import urllib.request
 from collections import OrderedDict, defaultdict
 
@@ -245,6 +247,12 @@ def build_parser() -> argparse.ArgumentParser:
     src.add_argument("--url", help="ICS feed URL (defaults to $ICS_URL)")
     src.add_argument("--input", help="Read the feed from a local file instead")
     p.add_argument("--output", "-o", default="calendar.ics")
+    p.add_argument(
+        "--retries",
+        type=int,
+        default=3,
+        help="Retry a failed download this many times with backoff",
+    )
     p.add_argument("--calname", help="Override X-WR-CALNAME")
     p.add_argument(
         "--min-events",
@@ -271,6 +279,28 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def fetch(url: str, retries: int = 3) -> str:
+    """Download the feed, retrying transient Outlook/network failures."""
+    req = urllib.request.Request(url, headers={"User-Agent": "ics-calendar-filter/1.0"})
+    last = None
+    for attempt in range(1, retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                return resp.read().decode("utf-8-sig", errors="replace")
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last = exc
+            if attempt == retries:
+                break
+            delay = 2**attempt
+            print(
+                f"warning: fetch attempt {attempt}/{retries} failed ({exc}); "
+                f"retrying in {delay}s",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+    raise SystemExit(f"error: could not download feed after {retries} attempts: {last}")
+
+
 def main(argv=None) -> int:
     cfg = build_parser().parse_args(argv)
 
@@ -282,9 +312,7 @@ def main(argv=None) -> int:
         if not url:
             print("error: no feed given; pass --url/--input or set $ICS_URL", file=sys.stderr)
             return 2
-        req = urllib.request.Request(url, headers={"User-Agent": "ics-calendar-filter/1.0"})
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            text = resp.read().decode("utf-8-sig", errors="replace")
+        text = fetch(url, cfg.retries)
 
     if "BEGIN:VCALENDAR" not in text:
         print("error: response was not an ICS calendar", file=sys.stderr)
