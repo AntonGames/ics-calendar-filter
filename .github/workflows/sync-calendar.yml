@@ -44,7 +44,19 @@ jobs:
         run: |
           if [ -z "$GH_TOKEN" ]; then
             echo "::error::GIST_TOKEN secret is not set on this repository."
-            echo "Create a classic token with only the 'gist' scope, then run:"
+            echo "Create a classic token with only the 'gist' scope and no"
+            echo "expiry, then run:"
+            echo "  gh secret set GIST_TOKEN --repo ${{ github.repository }}"
+            exit 1
+          fi
+          # Surface an expired or revoked token as such, rather than leaving a
+          # bare 401 from the upload for someone to decode later.
+          if ! gh api /user --silent 2>/dev/null; then
+            echo "::error::GIST_TOKEN is expired, revoked or invalid (HTTP 401)."
+            echo "Create a replacement classic token with only the 'gist' scope"
+            echo "and 'No expiration' at:"
+            echo "  https://github.com/settings/tokens/new?scopes=gist&description=ics-calendar-filter"
+            echo "then run:"
             echo "  gh secret set GIST_TOKEN --repo ${{ github.repository }}"
             exit 1
           fi
@@ -70,6 +82,10 @@ jobs:
       - name: Keep the schedule alive
         # GitHub disables cron workflows after 60 days of repository inactivity,
         # so commit periodically to keep this running with every PC switched off.
+        # This must also run when an earlier step failed: an expired token would
+        # otherwise stop the keepalive too, and the schedule would be disabled
+        # on day 60, so fixing the token alone would not restart the sync.
+        if: always()
         run: |
           days=$(( ( $(date +%s) - $(git log -1 --format=%ct) ) / 86400 ))
           echo "Days since last commit: $days"

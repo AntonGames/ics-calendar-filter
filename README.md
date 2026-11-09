@@ -52,6 +52,18 @@ Note the gist ID from the returned URL.
 A fine-grained PAT is not required; a classic token with only the **`gist`**
 scope is enough: <https://github.com/settings/tokens>
 
+Choose **"No expiration"**. A token that expires silently stops the sync — the
+calendar freezes on its last good copy and every scheduled run fails until the
+token is replaced. A `gist`-scoped token can only read and write your gists; it
+cannot touch repositories or any other data.
+
+To replace an expired token later:
+
+```bash
+gh secret set GIST_TOKEN --repo <owner>/ics-calendar-filter
+gh workflow run "Sync filtered calendar" --repo <owner>/ics-calendar-filter
+```
+
 ### 3. Push this repo and add secrets
 
 ```bash
@@ -111,6 +123,14 @@ cron never gets switched off.
 - **Failures email you.** GitHub notifies the repo owner when a scheduled run
   fails, and the run refuses to publish an empty or leaking calendar rather
   than corrupting a working one.
+- **An expired `GIST_TOKEN` is the most likely cause of a failing run.** The
+  publish step reports that explicitly. Google keeps serving the last good
+  calendar until the token is replaced, so nothing is lost — it just stops
+  updating.
+- **Scheduled runs are throttled.** GitHub does not honour an hourly cron
+  exactly and may skip runs on a quiet repository; in practice this syncs every
+  few hours. That is still far more often than Google re-polls, so it does not
+  affect what you see.
 - **Fix it at the source too.** In Outlook: *Settings → Calendar → Events and
   invitations → Save declined events* → off. That reduces what reaches the feed
   in the first place, though it does not cover Following/Stebima.
